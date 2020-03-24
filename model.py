@@ -48,8 +48,9 @@ class VIN(nn.Module):
         h = self.h(input_view)  # intermediate output
         r = self.r(h)           # reward output
         q = self.q(r)           # initial Q value from reward for different actions
+        v, _ = torch.max(q, dim=1, keepdim=True)
+
         for i in range(k):
-            v, _ = torch.max(q, dim=1, keepdim=True)
             q = F.conv2d(
                 # stack reward with new value
                 torch.cat([r, v], 1),
@@ -57,6 +58,7 @@ class VIN(nn.Module):
                 torch.cat([self.q.weight, self.w], 1),
                 stride=1,
                 padding=1)
+            v, _ = torch.max(q, dim=1, keepdim=True)
 
         # q: (batch_sz, l_q, map_size, map_size)
         batch_sz, l_q, _, _ = q.size()
