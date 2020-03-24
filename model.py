@@ -37,18 +37,18 @@ class VIN(nn.Module):
             torch.zeros(config.l_q, 1, 3, 3), requires_grad=True)
         self.sm = nn.Softmax(dim=1)
 
-    def forward(self, input_view, state_x, state_y, config):
+    def forward(self, input_view, state_x, state_y, k):
         """
         :param input_view: (batch_sz, imsize, imsize)
         :param state_x: (batch_sz,), 0 <= state_x < imsize
         :param state_y: (batch_sz,), 0 <= state_y < imsize
-        :param config:
+        :param k: number of iterations
         :return: logits and softmaxed logits
         """
         h = self.h(input_view)  # intermediate output
         r = self.r(h)           # reward output
         q = self.q(r)           # initial Q value from reward for different actions
-        for i in range(config.k):
+        for i in range(k):
             v, _ = torch.max(q, dim=1, keepdim=True)
             q = F.conv2d(
                 # stack reward with new value
