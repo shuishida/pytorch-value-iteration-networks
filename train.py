@@ -16,7 +16,7 @@ from model import *
 
 def train(net: VIN, trainloader, config, criterion, optimizer):
     print_header()
-    # Automaticlly select device to make the code device agnostic
+    # Automatically select device to make the code device agnostic
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     for epoch in range(config.epochs):  # Loop over dataset multiple times
         avg_error, avg_loss, num_batches = 0.0, 0.0, 0.0
@@ -50,7 +50,7 @@ def train(net: VIN, trainloader, config, criterion, optimizer):
 
 def test(net: VIN, testloader, config):
     total, correct = 0.0, 0.0
-    # automaticlly select device, device agnostic
+    # Automatically select device, device agnostic
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     for i, data in enumerate(testloader):
         # Get inputs
