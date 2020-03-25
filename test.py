@@ -51,7 +51,7 @@ def main(config,
         im = obs.get_final()
 
         # Generate gridworld from obstacle map
-        G = gridworld(im, goal[0], goal[1])
+        G = GridWorld(im, goal[0], goal[1])
         # Get value prior
         value_prior = G.get_reward_prior()
         # Sample random trajectories to our goal

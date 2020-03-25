@@ -3,7 +3,7 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 
 
-class gridworld:
+class GridWorld:
     """A class for making gridworlds"""
 
     DIR = {'N': (-1, 0), 'S': (1, 0), 'E': (0, 1), 'W': (0, -1),
@@ -17,16 +17,10 @@ class gridworld:
         self.freespace = np.where(self.image != 0)
         self.target_x = target_x
         self.target_y = target_y
-        self.G = []
-        self.W = []
-        self.R = []
-        self.P = []
-        self.A = []
         self.n_states = self.n_row * self.n_col
         self.n_actions = len(self.DIR)
-        self.state_map_col = []
-        self.state_map_row = []
-        self.set_vals()
+
+        self.G, self.W, self.P, self.R, self.state_map_row, self.state_map_col = self.set_vals()
 
     def get_state_index(self, row, col):
         return np.ravel_multi_index([row, col], (self.n_row, self.n_col), order='F')
@@ -47,33 +41,29 @@ class gridworld:
                 for dir in self.DIR:
                     neighbor_row, neighbor_col = self.move(row, col, dir)
                     neighbor_state = self.get_state_index(neighbor_row, neighbor_col)
-
                     p[dir][curr_state, neighbor_state] += 1
 
-        G = np.logical_or.reduce(p.values())
+        G = np.logical_or.reduce(tuple(p.values()))
 
-        W = np.maximum.reduce((p[dir] * np.linalg.norm(np.array(vec)) for dir, vec in self.DIR.items()))
+        W = np.maximum.reduce(tuple(p[dir] * np.linalg.norm(np.array(vec)) for dir, vec in self.DIR.items()))
 
         non_obstacles = self.get_state_index(self.freespace[0], self.freespace[1])
 
         non_obstacles = np.sort(non_obstacles)
         for dir in self.DIR:
-            p[dir] = np.expand_dims(p[dir][[non_obstacles], [non_obstacles]], axis=2)
+            p[dir] = np.expand_dims(p[dir][non_obstacles, :][:, non_obstacles], axis=2)
 
-        G = G[[non_obstacles], [non_obstacles]]
-        W = W[[non_obstacles], [non_obstacles]]
+        G = G[non_obstacles, :][:, non_obstacles]
+        W = W[non_obstacles, :][:, non_obstacles]
         R = R[non_obstacles, :]
+        P = np.concatenate(tuple(p.values()), axis=2)
 
-        P = np.concatenate(p.values(), axis=2)
-
-        self.G = G
-        self.W = W
-        self.P = P
-        self.R = R
         state_map_col, state_map_row = np.meshgrid(
             np.arange(0, self.n_col), np.arange(0, self.n_row))
-        self.state_map_row = state_map_row.flatten('F')[non_obstacles]
-        self.state_map_col = state_map_col.flatten('F')[non_obstacles]
+        state_map_row = state_map_row.flatten('F')[non_obstacles]
+        state_map_col = state_map_col.flatten('F')[non_obstacles]
+
+        return G, W, P, R, state_map_row, state_map_col
 
     def get_graph(self):
         # Returns graph
@@ -204,7 +194,7 @@ def trace_path(pred, source, target):
     return path
 
 
-def sample_trajectory(M, n_states):
+def sample_trajectory(M: GridWorld, n_states):
     # Samples trajectories from random nodes
     #  in our domain (M)
     G, W = M.get_graph_inv()
@@ -214,7 +204,7 @@ def sample_trajectory(M, n_states):
     else:
         rand_ind = np.tile(np.random.permutation(N), (1, 10))
     init_states = rand_ind[0:n_states].flatten()
-    goal_s = M.map_ind_to_state(M.targetx, M.targety)
+    goal_s = M.map_ind_to_state(M.target_x, M.target_y)
     states = []
     states_xy = []
     states_one_hot = []
