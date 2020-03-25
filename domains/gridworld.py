@@ -6,122 +6,65 @@ from scipy.sparse.csgraph import dijkstra
 class gridworld:
     """A class for making gridworlds"""
 
-    def __init__(self, image, targetx, targety):
+    DIR = {'N': (-1, 0), 'S': (1, 0), 'E': (0, 1), 'W': (0, -1),
+           'NE': (-1, 1), 'NW': (-1, -1), 'SE': (1, 1), 'SW': (1, -1)}
+
+    def __init__(self, image, target_x, target_y):
         self.image = image
         self.n_row = image.shape[0]
         self.n_col = image.shape[1]
-        self.obstacles = []
-        self.freespace = []
-        self.targetx = targetx
-        self.targety = targety
+        self.obstacles = np.where(self.image == 0)
+        self.freespace = np.where(self.image != 0)
+        self.target_x = target_x
+        self.target_y = target_y
         self.G = []
         self.W = []
         self.R = []
         self.P = []
         self.A = []
-        self.n_states = 0
-        self.n_actions = 0
+        self.n_states = self.n_row * self.n_col
+        self.n_actions = len(self.DIR)
         self.state_map_col = []
         self.state_map_row = []
         self.set_vals()
 
+    def get_state_index(self, row, col):
+        return np.ravel_multi_index([row, col], (self.n_row, self.n_col), order='F')
+
     def set_vals(self):
         # Setup function to initialize all necessary
-        #  data
-        row_obs, col_obs = np.where(self.image == 0)
-        row_free, col_free = np.where(self.image != 0)
-        self.obstacles = [row_obs, col_obs]
-        self.freespace = [row_free, col_free]
 
-        n_states = self.n_row * self.n_col
-        n_actions = 8
-        self.n_states = n_states
-        self.n_actions = n_actions
-
-        p_n = np.zeros((self.n_states, self.n_states))
-        p_s = np.zeros((self.n_states, self.n_states))
-        p_e = np.zeros((self.n_states, self.n_states))
-        p_w = np.zeros((self.n_states, self.n_states))
-        p_ne = np.zeros((self.n_states, self.n_states))
-        p_nw = np.zeros((self.n_states, self.n_states))
-        p_se = np.zeros((self.n_states, self.n_states))
-        p_sw = np.zeros((self.n_states, self.n_states))
+        p = {dir: np.zeros((self.n_states, self.n_states)) for dir in self.DIR}
 
         R = -1 * np.ones((self.n_states, self.n_actions))
         R[:, 4:self.n_actions] = R[:, 4:self.n_actions] * np.sqrt(2)
-        target = np.ravel_multi_index(
-            [self.targetx, self.targety], (self.n_row, self.n_col), order='F')
+        target = self.get_state_index(self.target_x, self.target_y)
         R[target, :] = 0
 
-        for row in range(0, self.n_row):
-            for col in range(0, self.n_col):
+        for row in range(self.n_row):
+            for col in range(self.n_col):
+                curr_state = self.get_state_index(row, col)
+                for dir in self.DIR:
+                    neighbor_row, neighbor_col = self.move(row, col, dir)
+                    neighbor_state = self.get_state_index(neighbor_row, neighbor_col)
 
-                curpos = np.ravel_multi_index(
-                    [row, col], (self.n_row, self.n_col), order='F')
+                    p[dir][curr_state, neighbor_state] += 1
 
-                rows, cols = self.neighbors(row, col)
+        G = np.logical_or.reduce(p.values())
 
-                neighbor_inds = np.ravel_multi_index(
-                    [rows, cols], (self.n_row, self.n_col), order='F')
+        W = np.maximum.reduce((p[dir] * np.linalg.norm(np.array(vec)) for dir, vec in self.DIR.items()))
 
-                p_n[curpos, neighbor_inds[
-                    0]] = p_n[curpos, neighbor_inds[0]] + 1
-                p_s[curpos, neighbor_inds[
-                    1]] = p_s[curpos, neighbor_inds[1]] + 1
-                p_e[curpos, neighbor_inds[
-                    2]] = p_e[curpos, neighbor_inds[2]] + 1
-                p_w[curpos, neighbor_inds[
-                    3]] = p_w[curpos, neighbor_inds[3]] + 1
-                p_ne[curpos, neighbor_inds[
-                    4]] = p_ne[curpos, neighbor_inds[4]] + 1
-                p_nw[curpos, neighbor_inds[
-                    5]] = p_nw[curpos, neighbor_inds[5]] + 1
-                p_se[curpos, neighbor_inds[
-                    6]] = p_se[curpos, neighbor_inds[6]] + 1
-                p_sw[curpos, neighbor_inds[
-                    7]] = p_sw[curpos, neighbor_inds[7]] + 1
-
-        G = np.logical_or.reduce((p_n, p_s, p_e, p_w, p_ne, p_nw, p_se, p_sw))
-
-        W = np.maximum(
-            np.maximum(
-                np.maximum(
-                    np.maximum(
-                        np.maximum(np.maximum(np.maximum(p_n, p_s), p_e), p_w),
-                        np.sqrt(2) * p_ne),
-                    np.sqrt(2) * p_nw),
-                np.sqrt(2) * p_se),
-            np.sqrt(2) * p_sw)
-
-        non_obstacles = np.ravel_multi_index(
-            [self.freespace[0], self.freespace[1]], (self.n_row, self.n_col),
-            order='F')
+        non_obstacles = self.get_state_index(self.freespace[0], self.freespace[1])
 
         non_obstacles = np.sort(non_obstacles)
-        p_n = p_n[non_obstacles, :]
-        p_n = np.expand_dims(p_n[:, non_obstacles], axis=2)
-        p_s = p_s[non_obstacles, :]
-        p_s = np.expand_dims(p_s[:, non_obstacles], axis=2)
-        p_e = p_e[non_obstacles, :]
-        p_e = np.expand_dims(p_e[:, non_obstacles], axis=2)
-        p_w = p_w[non_obstacles, :]
-        p_w = np.expand_dims(p_w[:, non_obstacles], axis=2)
-        p_ne = p_ne[non_obstacles, :]
-        p_ne = np.expand_dims(p_ne[:, non_obstacles], axis=2)
-        p_nw = p_nw[non_obstacles, :]
-        p_nw = np.expand_dims(p_nw[:, non_obstacles], axis=2)
-        p_se = p_se[non_obstacles, :]
-        p_se = np.expand_dims(p_se[:, non_obstacles], axis=2)
-        p_sw = p_sw[non_obstacles, :]
-        p_sw = np.expand_dims(p_sw[:, non_obstacles], axis=2)
-        G = G[non_obstacles, :]
-        G = G[:, non_obstacles]
-        W = W[non_obstacles, :]
-        W = W[:, non_obstacles]
+        for dir in self.DIR:
+            p[dir] = np.expand_dims(p[dir][[non_obstacles], [non_obstacles]], axis=2)
+
+        G = G[[non_obstacles], [non_obstacles]]
+        W = W[[non_obstacles], [non_obstacles]]
         R = R[non_obstacles, :]
 
-        P = np.concatenate(
-            (p_n, p_s, p_e, p_w, p_ne, p_nw, p_se, p_sw), axis=2)
+        P = np.concatenate(p.values(), axis=2)
 
         self.G = G
         self.W = W
@@ -129,8 +72,8 @@ class gridworld:
         self.R = R
         state_map_col, state_map_row = np.meshgrid(
             np.arange(0, self.n_col), np.arange(0, self.n_row))
-        self.state_map_col = state_map_col.flatten('F')[non_obstacles]
         self.state_map_row = state_map_row.flatten('F')[non_obstacles]
+        self.state_map_col = state_map_col.flatten('F')[non_obstacles]
 
     def get_graph(self):
         # Returns graph
@@ -155,21 +98,21 @@ class gridworld:
         s_map_col, s_map_row = np.meshgrid(
             np.arange(0, self.n_col), np.arange(0, self.n_row))
         im = np.sqrt(
-            np.square(s_map_col - self.targety) +
-            np.square(s_map_row - self.targetx))
+            np.square(s_map_col - self.target_y) +
+            np.square(s_map_row - self.target_x))
         return im
 
     def get_reward_prior(self):
         # Returns reward prior for gridworld
         im = -1 * np.ones((self.n_row, self.n_col))
-        im[self.targetx, self.targety] = 10
+        im[self.target_x, self.target_y] = 10
         return im
 
     def t_get_reward_prior(self):
         # Returns reward prior as needed for
         #  dataset generation
         im = np.zeros((self.n_row, self.n_col))
-        im[self.targetx, self.targety] = 10
+        im[self.target_x, self.target_y] = 10
         return im
 
     def get_state_image(self, row, col):
@@ -228,104 +171,16 @@ class gridworld:
         # Returns domain size
         return self.n_row, self.n_col
 
-    def north(self, row, col):
+    def move(self, row, col, dir):
         # Returns new [row,col]
         #  if we take the action
-        new_row = np.max([row - 1, 0])
-        new_col = col
+        r_move, c_move = self.DIR[dir]
+        new_row = max(0, min(row + r_move, self.n_row - 1))
+        new_col = max(0, min(col + c_move, self.n_col - 1))
         if self.image[new_row, new_col] == 0:
             new_row = row
             new_col = col
         return new_row, new_col
-
-    def northeast(self, row, col):
-        # Returns new [row,col]
-        #  if we take the action
-        new_row = np.max([row - 1, 0])
-        new_col = np.min([col + 1, self.n_col - 1])
-        if self.image[new_row, new_col] == 0:
-            new_row = row
-            new_col = col
-        return new_row, new_col
-
-    def northwest(self, row, col):
-        # Returns new [row,col]
-        #  if we take the action
-        new_row = np.max([row - 1, 0])
-        new_col = np.max([col - 1, 0])
-        if self.image[new_row, new_col] == 0:
-            new_row = row
-            new_col = col
-        return new_row, new_col
-
-    def south(self, row, col):
-        # Returns new [row,col]
-        #  if we take the action
-        new_row = np.min([row + 1, self.n_row - 1])
-        new_col = col
-        if self.image[new_row, new_col] == 0:
-            new_row = row
-            new_col = col
-        return new_row, new_col
-
-    def southeast(self, row, col):
-        # Returns new [row,col]
-        #  if we take the action
-        new_row = np.min([row + 1, self.n_row - 1])
-        new_col = np.min([col + 1, self.n_col - 1])
-        if self.image[new_row, new_col] == 0:
-            new_row = row
-            new_col = col
-        return new_row, new_col
-
-    def southwest(self, row, col):
-        # Returns new [row,col]
-        #  if we take the action
-        new_row = np.min([row + 1, self.n_row - 1])
-        new_col = np.max([col - 1, 0])
-        if self.image[new_row, new_col] == 0:
-            new_row = row
-            new_col = col
-        return new_row, new_col
-
-    def east(self, row, col):
-        # Returns new [row,col]
-        #  if we take the action
-        new_row = row
-        new_col = np.min([col + 1, self.n_col - 1])
-        if self.image[new_row, new_col] == 0:
-            new_row = row
-            new_col = col
-        return new_row, new_col
-
-    def west(self, row, col):
-        # Returns new [row,col]
-        #  if we take the action
-        new_row = row
-        new_col = np.max([col - 1, 0])
-        if self.image[new_row, new_col] == 0:
-            new_row = row
-            new_col = col
-        return new_row, new_col
-
-    def neighbors(self, row, col):
-        # Get valid neighbors in all valid directions
-        rows, cols = self.north(row, col)
-        new_row, new_col = self.south(row, col)
-        rows, cols = np.append(rows, new_row), np.append(cols, new_col)
-        new_row, new_col = self.east(row, col)
-        rows, cols = np.append(rows, new_row), np.append(cols, new_col)
-        new_row, new_col = self.west(row, col)
-        rows, cols = np.append(rows, new_row), np.append(cols, new_col)
-        new_row, new_col = self.northeast(row, col)
-        rows, cols = np.append(rows, new_row), np.append(cols, new_col)
-        new_row, new_col = self.northwest(row, col)
-        rows, cols = np.append(rows, new_row), np.append(cols, new_col)
-        new_row, new_col = self.southeast(row, col)
-        rows, cols = np.append(rows, new_row), np.append(cols, new_col)
-        new_row, new_col = self.southwest(row, col)
-        rows, cols = np.append(rows, new_row), np.append(cols, new_col)
-        return rows, cols
 
 
 def trace_path(pred, source, target):
