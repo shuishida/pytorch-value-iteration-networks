@@ -1,13 +1,13 @@
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
+from collections import OrderedDict
 
 
 class GridWorld:
     """A class for making gridworlds"""
 
-    DIR = {'N': (-1, 0), 'S': (1, 0), 'E': (0, 1), 'W': (0, -1),
-           'NE': (-1, 1), 'NW': (-1, -1), 'SE': (1, 1), 'SW': (1, -1)}
+    ACTION = OrderedDict(N=(-1, 0), S=(1, 0), E=(0, 1), W=(0, -1), NE=(-1, 1), NW=(-1, -1), SE=(1, 1), SW=(1, -1))
 
     def __init__(self, image, target_x, target_y):
         self.image = image
@@ -18,45 +18,53 @@ class GridWorld:
         self.target_x = target_x
         self.target_y = target_y
         self.n_states = self.n_row * self.n_col
-        self.n_actions = len(self.DIR)
+        self.n_actions = len(self.ACTION)
 
         self.G, self.W, self.P, self.R, self.state_map_row, self.state_map_col = self.set_vals()
 
-    def get_state_index(self, row, col):
+    def loc_to_state(self, row, col):
         return np.ravel_multi_index([row, col], (self.n_row, self.n_col), order='F')
+
+    def state_to_loc(self, state):
+        return np.unravel_index(state, (self.n_col, self.n_row), order='F')
 
     def set_vals(self):
         # Setup function to initialize all necessary
 
-        p = {dir: np.zeros((self.n_states, self.n_states)) for dir in self.DIR}
-
-        R = -1 * np.ones((self.n_states, self.n_actions))
-        R[:, 4:self.n_actions] = R[:, 4:self.n_actions] * np.sqrt(2)
-        target = self.get_state_index(self.target_x, self.target_y)
+        # Cost of each action, equivalent to the length of each vector
+        #  i.e. [1., 1., 1., 1., 1.414, 1.414, 1.414, 1.414]
+        action_cost = np.linalg.norm(list(self.ACTION.values()), axis=1)
+        # Initializing reward function R: (curr_state, action) -> reward: float
+        # Each transition has negative reward equivalent to the distance of transition
+        R = - np.ones((self.n_states, self.n_actions)) * action_cost
+        # Reward at target is zero
+        target = self.loc_to_state(self.target_x, self.target_y)
         R[target, :] = 0
 
+        # Transition function P: (curr_state, next_state, action) -> probability: float
+        P = np.zeros((self.n_states, self.n_states, self.n_actions))
+        # Filling in P
         for row in range(self.n_row):
             for col in range(self.n_col):
-                curr_state = self.get_state_index(row, col)
-                for dir in self.DIR:
-                    neighbor_row, neighbor_col = self.move(row, col, dir)
-                    neighbor_state = self.get_state_index(neighbor_row, neighbor_col)
-                    p[dir][curr_state, neighbor_state] += 1
+                curr_state = self.loc_to_state(row, col)
+                for i_action, action in enumerate(self.ACTION):
+                    neighbor_row, neighbor_col = self.move(row, col, action)
+                    neighbor_state = self.loc_to_state(neighbor_row, neighbor_col)
+                    P[curr_state, neighbor_state, i_action] = 1
 
-        G = np.logical_or.reduce(tuple(p.values()))
+        # Adjacency matrix of a graph connecting curr_state and next_state
+        G = np.logical_or.reduce(P, axis=2)
+        # Weight of transition edges, equivalent to the cost of transition
+        W = np.maximum.reduce(P * action_cost, axis=2)
 
-        W = np.maximum.reduce(tuple(p[dir] * np.linalg.norm(np.array(vec)) for dir, vec in self.DIR.items()))
-
-        non_obstacles = self.get_state_index(self.freespace[0], self.freespace[1])
+        non_obstacles = self.loc_to_state(self.freespace[0], self.freespace[1])
 
         non_obstacles = np.sort(non_obstacles)
-        for dir in self.DIR:
-            p[dir] = np.expand_dims(p[dir][non_obstacles, :][:, non_obstacles], axis=2)
 
         G = G[non_obstacles, :][:, non_obstacles]
         W = W[non_obstacles, :][:, non_obstacles]
+        P = P[non_obstacles, :, :][:, non_obstacles, :]
         R = R[non_obstacles, :]
-        P = np.concatenate(tuple(p.values()), axis=2)
 
         state_map_col, state_map_row = np.meshgrid(
             np.arange(0, self.n_col), np.arange(0, self.n_row))
@@ -120,13 +128,10 @@ class GridWorld:
     def get_coords(self, states):
         # Given a state or states, returns
         #  [row,col] pairs for the state(s)
-        non_obstacles = np.ravel_multi_index(
-            [self.freespace[0], self.freespace[1]], (self.n_row, self.n_col),
-            order='F')
+        non_obstacles = self.loc_to_state(self.freespace[0], self.freespace[1])
         non_obstacles = np.sort(non_obstacles)
         states = states.astype(int)
-        r, c = np.unravel_index(
-            non_obstacles[states], (self.n_col, self.n_row), order='F')
+        r, c = self.state_to_loc(non_obstacles[states])
         return r, c
 
     def rand_choose(self, in_vec):
@@ -161,10 +166,10 @@ class GridWorld:
         # Returns domain size
         return self.n_row, self.n_col
 
-    def move(self, row, col, dir):
+    def move(self, row, col, action):
         # Returns new [row,col]
         #  if we take the action
-        r_move, c_move = self.DIR[dir]
+        r_move, c_move = self.ACTION[action]
         new_row = max(0, min(row + r_move, self.n_row - 1))
         new_col = max(0, min(col + c_move, self.n_col - 1))
         if self.image[new_row, new_col] == 0:
