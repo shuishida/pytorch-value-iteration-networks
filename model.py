@@ -45,25 +45,30 @@ class VIN(nn.Module):
         :param k: number of iterations
         :return: logits and softmaxed logits
         """
-        h = self.h(input_view)  # intermediate output
-        r = self.r(h)           # reward output
-        q = self.q(r)           # initial Q value from reward for different actions
+        h = self.h(input_view)  # Intermediate output
+        r = self.r(h)           # Reward
+        q = self.q(r)           # Initial Q value from reward
         v, _ = torch.max(q, dim=1, keepdim=True)
 
-        for i in range(k):
-            q = F.conv2d(
-                # stack reward with new value
+        def eval_q(r, v):
+            return F.conv2d(
+                # Stack reward with most recent value
                 torch.cat([r, v], 1),
-                # convolve r->q weights to r, and v->q weights for v. These represent transition probabilities
+                # Convolve r->q weights to r, and v->q weights for v. These represent transition probabilities
                 torch.cat([self.q.weight, self.w], 1),
                 stride=1,
                 padding=1)
+
+        # Update q and v values
+        for i in range(k - 1):
+            q = eval_q(r, v)
             v, _ = torch.max(q, dim=1, keepdim=True)
 
+        q = eval_q(r, v)
         # q: (batch_sz, l_q, map_size, map_size)
         batch_sz, l_q, _, _ = q.size()
         q_out = q[torch.arange(batch_sz), :, state_x.long(), state_y.long()].view(batch_sz, l_q)
 
-        logits = self.fc(q_out)     # q_out to actions
+        logits = self.fc(q_out)  # q_out to actions
 
         return logits, self.sm(logits)

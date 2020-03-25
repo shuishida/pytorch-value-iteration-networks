@@ -28,7 +28,7 @@ def main(config,
     vin: VIN = VIN(config)
     # Load model parameters
     vin.load_state_dict(torch.load(config.weights))
-    # Automaticlly select device to make the code device agnostic
+    # Automatically select device to make the code device agnostic
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     vin = vin.to(device)
 
@@ -127,9 +127,9 @@ def visualize(dom, states_xy, pred_traj):
     ax.plot(states_xy[-1, 0], states_xy[-1, 1], '-s', label='Goal')
     legend = ax.legend(loc='upper right', shadow=False)
     for label in legend.get_texts():
-        label.set_fontsize('x-small')  # the legend text size
+        label.set_fontsize('x-small')   # The legend text size
     for label in legend.get_lines():
-        label.set_linewidth(0.5)  # the legend line width
+        label.set_linewidth(0.5)        # The legend line width
     plt.draw()
     plt.waitforbuttonpress(0)
     plt.close(fig)
